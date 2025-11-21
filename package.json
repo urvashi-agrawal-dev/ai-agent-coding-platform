@@ -1,0 +1,23 @@
+{
+  "name": "devmentor-360",
+  "version": "1.0.0",
+  "description": "Multi-agent development mentoring platform",
+  "private": true,
+  "workspaces": [
+    "frontend",
+    "backend",
+    "agents",
+    "sandbox",
+    "shared"
+  ],
+  "scripts": {
+    "install:all": "npm install",
+    "dev": "concurrently \"npm run dev --workspace=backend\" \"npm run dev --workspace=frontend\"",
+    "dev:backend": "npm run dev --workspace=backend",
+    "dev:frontend": "npm run dev --workspace=frontend",
+    "build": "npm run build --workspace=frontend && npm run build --workspace=backend"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

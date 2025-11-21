@@ -1,0 +1,9 @@
+{
+  "name": "@devmentor/sandbox",
+  "version": "1.0.0",
+  "description": "Isolated code execution environment",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  }
+}

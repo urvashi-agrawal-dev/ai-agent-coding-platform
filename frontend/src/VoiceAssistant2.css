@@ -1,0 +1,205 @@
+/* Voice Assistant Styles - Part 2 */
+.data-flow {
+  margin-top: 1.5rem;
+}
+
+.data-flow h5 {
+  color: #4ec9b0;
+  margin-bottom: 1rem;
+}
+
+.flow-diagram {
+  background: #1e1e1e;
+  padding: 1rem;
+  border-radius: 4px;
+}
+
+.flow-step {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem;
+  margin-bottom: 0.5rem;
+  background: #252526;
+  border-radius: 4px;
+}
+
+.flow-arrow {
+  color: #4ec9b0;
+  font-size: 1.5em;
+  font-weight: bold;
+}
+
+.flow-text {
+  color: #d4d4d4;
+}
+
+.performance-analysis {
+  margin-top: 1.5rem;
+}
+
+.performance-analysis h5 {
+  color: #ff9800;
+  margin-bottom: 1rem;
+}
+
+.perf-issues {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.perf-issue {
+  background: #1e1e1e;
+  padding: 1rem;
+  border-radius: 4px;
+  border-left: 3px solid;
+}
+
+.perf-issue .issue-severity {
+  font-weight: bold;
+  text-transform: uppercase;
+  font-size: 0.85em;
+  margin-bottom: 0.5rem;
+}
+
+.perf-issue[class*="high"] {
+  border-left-color: #f44336;
+}
+
+.perf-issue[class*="high"] .issue-severity {
+  color: #f44336;
+}
+
+.perf-issue[class*="medium"] {
+  border-left-color: #ff9800;
+}
+
+.perf-issue[class*="medium"] .issue-severity {
+  color: #ff9800;
+}
+
+.perf-issue[class*="low"] {
+  border-left-color: #4caf50;
+}
+
+.perf-issue[class*="low"] .issue-severity {
+  color: #4caf50;
+}
+
+.issue-desc {
+  color: #9cdcfe;
+  margin-bottom: 0.5rem;
+}
+
+.issue-fix {
+  color: #888;
+  font-size: 0.9em;
+}
+
+.related-code {
+  margin-top: 1.5rem;
+}
+
+.related-code h5 {
+  color: #dcdcaa;
+  margin-bottom: 1rem;
+}
+
+.related-item {
+  background: #1e1e1e;
+  padding: 1rem;
+  border-radius: 4px;
+  margin-bottom: 1rem;
+}
+
+.related-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+
+.related-name {
+  color: #4ec9b0;
+  font-weight: bold;
+}
+
+.related-location {
+  color: #888;
+  font-size: 0.9em;
+}
+
+.related-snippet {
+  background: #0d1117;
+  padding: 0.75rem;
+  border-radius: 3px;
+  overflow-x: auto;
+  color: #c9d1d9;
+  margin: 0;
+}
+
+.history-section {
+  margin-top: 2rem;
+  padding-top: 1rem;
+  border-top: 2px solid #3e3e42;
+}
+
+.history-section h4 {
+  color: #888;
+  font-size: 0.9em;
+  text-transform: uppercase;
+}
+
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.history-item {
+  background: #252526;
+  padding: 0.75rem;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.2s;
+  border-left: 3px solid #3e3e42;
+}
+
+.history-item:hover {
+  background: #2d2d30;
+  border-left-color: #c586c0;
+}
+
+.history-question {
+  font-weight: bold;
+  color: #9cdcfe;
+  margin-bottom: 0.25rem;
+}
+
+.history-preview {
+  color: #888;
+  font-size: 0.9em;
+}
+
+.voice-tips {
+  margin-top: 2rem;
+  padding: 1rem;
+  background: rgba(78, 201, 176, 0.1);
+  border-radius: 4px;
+  border-left: 3px solid #4ec9b0;
+}
+
+.voice-tips h5 {
+  margin-top: 0;
+  color: #4ec9b0;
+}
+
+.voice-tips ul {
+  margin: 0.5rem 0 0;
+  padding-left: 1.5rem;
+}
+
+.voice-tips li {
+  margin: 0.5rem 0;
+  color: #9cdcfe;
+}

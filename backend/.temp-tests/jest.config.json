@@ -1,0 +1,8 @@
+{
+  "testEnvironment": "node",
+  "collectCoverage": true,
+  "coverageDirectory": "C:\\Users\\oasis\\Documents\\multiagents\\backend\\.temp-tests\\coverage",
+  "testMatch": [
+    "**/*.test.js"
+  ]
+}
