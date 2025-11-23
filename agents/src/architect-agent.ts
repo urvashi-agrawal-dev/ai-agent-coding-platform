@@ -1,4 +1,5 @@
 import { AgentRequest, AgentResponse, AgentType, ProjectFile } from '../../shared/src/types';
+import { LLMService } from './services/llm.service';
 
 interface ArchitectureAnalysis {
   detectedPatterns: string[];
@@ -50,9 +51,15 @@ interface Recommendation {
 }
 
 export class ArchitectAgent {
+  private llmService: LLMService;
+
+  constructor() {
+    this.llmService = new LLMService();
+  }
+
   async process(request: AgentRequest): Promise<AgentResponse> {
     const analysis = await this.analyzeArchitecture(request.code, request.projectFiles);
-    
+
     return {
       agentType: AgentType.ARCHITECT,
       success: true,
@@ -64,19 +71,30 @@ export class ArchitectAgent {
 
   private async analyzeArchitecture(code: string, files?: ProjectFile[]): Promise<ArchitectureAnalysis> {
     const projectFiles = files || [{ path: 'main.js', content: code, language: 'javascript' }];
-    
+
+    // 1. Deterministic Analysis (Heuristics)
     const layerStructure = this.inferLayerStructure(projectFiles);
     const dependencies = this.analyzeDependencies(projectFiles);
-    const detectedPatterns = this.detectArchitecturalPatterns(projectFiles, layerStructure);
-    const designFlaws = this.findDesignFlaws(projectFiles, dependencies, layerStructure);
+    const heuristicPatterns = this.detectArchitecturalPatterns(projectFiles, layerStructure);
+    const heuristicFlaws = this.findDesignFlaws(projectFiles, dependencies, layerStructure);
     const metrics = this.calculateMetrics(projectFiles, dependencies, layerStructure);
-    const recommendations = this.generateRecommendations(designFlaws, metrics, layerStructure);
+
+    // 2. AI Analysis (LLM)
+    const aiAnalysis = await this.performAIAnalysis(projectFiles, layerStructure, dependencies, metrics);
+
+    // 3. Merge Results
+    const detectedPatterns = [...new Set([...heuristicPatterns, ...aiAnalysis.patterns])];
+    const designFlaws = [...heuristicFlaws, ...aiAnalysis.flaws];
+    const recommendations = [...this.generateRecommendations(heuristicFlaws, metrics, layerStructure), ...aiAnalysis.recommendations];
+
+    // 4. Generate Document
     const designDocument = this.generateDesignDocument(
       detectedPatterns,
       layerStructure,
       dependencies,
       metrics,
-      recommendations
+      recommendations,
+      aiAnalysis.executiveSummary
     );
 
     return {
@@ -90,6 +108,62 @@ export class ArchitectAgent {
     };
   }
 
+  private async performAIAnalysis(
+    files: ProjectFile[],
+    layers: LayerInfo[],
+    deps: DependencyGraph,
+    metrics: ArchitectureMetrics
+  ): Promise<{ patterns: string[], flaws: DesignFlaw[], recommendations: Recommendation[], executiveSummary: string }> {
+
+    // Prepare context for LLM
+    // Limit file content to avoid token limits (send first 100 lines of each file)
+    const fileContext = files.map(f => ({
+      path: f.path,
+      contentPreview: f.content.split('\n').slice(0, 100).join('\n')
+    }));
+
+    const prompt = `
+You are an expert Software Architect. Analyze the following project structure and metrics.
+Provide a high-level architectural analysis.
+
+Project Structure:
+${JSON.stringify(layers, null, 2)}
+
+Metrics:
+${JSON.stringify(metrics, null, 2)}
+
+Dependency Stats:
+Nodes: ${deps.nodes.length}, Edges: ${deps.edges.length}, Cycles: ${deps.circularDependencies.length}
+
+Files Preview:
+${JSON.stringify(fileContext, null, 2)}
+
+Task:
+1. Identify architectural patterns (e.g., Microservices, Event-Driven, Clean Architecture).
+2. Find subtle design flaws (e.g., Leaky Abstractions, Improper Error Handling, Security Risks).
+3. Suggest high-impact recommendations.
+4. Write a brief Executive Summary.
+
+Return JSON format:
+{
+  "patterns": ["string"],
+  "flaws": [{ "type": "string", "severity": "low|medium|high|critical", "location": "string", "description": "string", "impact": "string", "suggestion": "string" }],
+  "recommendations": [{ "category": "string", "priority": "low|medium|high", "title": "string", "description": "string", "benefits": ["string"], "implementation": "string" }],
+  "executiveSummary": "string"
+}
+`;
+
+    try {
+      const response = await this.llmService.generateText(prompt);
+      const jsonMatch = response.match(/\{[\s\S]*\}/);
+      const jsonStr = jsonMatch ? jsonMatch[0] : response;
+      return JSON.parse(jsonStr);
+    } catch (error) {
+      console.error("AI Analysis failed:", error);
+      return { patterns: [], flaws: [], recommendations: [], executiveSummary: "AI Analysis unavailable." };
+    }
+  }
+
   private inferLayerStructure(files: ProjectFile[]): LayerInfo[] {
     const layers: LayerInfo[] = [];
     const layerPatterns = [
@@ -101,10 +175,10 @@ export class ArchitectAgent {
     ];
 
     for (const pattern of layerPatterns) {
-      const matchingFiles = files.filter(f => 
+      const matchingFiles = files.filter(f =>
         pattern.keywords.some(kw => f.path.toLowerCase().includes(kw))
       );
-      
+
       if (matchingFiles.length > 0) {
         layers.push({
           name: pattern.name,
@@ -120,7 +194,7 @@ export class ArchitectAgent {
   private analyzeDependencies(files: ProjectFile[]): DependencyGraph {
     const nodes = files.map(f => f.path);
     const edges: { from: string; to: string; type: string }[] = [];
-    
+
     // Extract imports/requires
     for (const file of files) {
       const imports = this.extractImports(file.content);
@@ -143,26 +217,26 @@ export class ArchitectAgent {
 
   private extractImports(content: string): string[] {
     const imports: string[] = [];
-    
+
     // ES6 imports
     const es6Regex = /import\s+.*?\s+from\s+['"]([^'"]+)['"]/g;
     let match;
     while ((match = es6Regex.exec(content)) !== null) {
       imports.push(match[1]);
     }
-    
+
     // CommonJS requires
     const cjsRegex = /require\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
     while ((match = cjsRegex.exec(content)) !== null) {
       imports.push(match[1]);
     }
-    
+
     return imports;
   }
 
   private resolveImport(importPath: string, files: ProjectFile[]): string | null {
     if (!importPath.startsWith('.')) return null; // External dependency
-    
+
     // Simple resolution - in production, use proper module resolution
     const normalized = importPath.replace(/^\.\//, '').replace(/^\.\.\//, '');
     return files.find(f => f.path.includes(normalized))?.path || null;
@@ -204,9 +278,9 @@ export class ArchitectAgent {
     const patterns: string[] = [];
 
     // Detect MVC
-    if (layers.some(l => l.name === 'Presentation') && 
-        layers.some(l => l.name === 'API/Routes') &&
-        layers.some(l => l.name === 'Data Access')) {
+    if (layers.some(l => l.name === 'Presentation') &&
+      layers.some(l => l.name === 'API/Routes') &&
+      layers.some(l => l.name === 'Data Access')) {
       patterns.push('MVC (Model-View-Controller)');
     }
 
@@ -227,11 +301,11 @@ export class ArchitectAgent {
 
     // Detect Microservices indicators
     if (files.some(f => f.content.includes('express') || f.content.includes('fastify')) &&
-        files.some(f => f.path.includes('api') || f.path.includes('route'))) {
+      files.some(f => f.path.includes('api') || f.path.includes('route'))) {
       patterns.push('REST API Architecture');
     }
 
-    return patterns.length > 0 ? patterns : ['Unstructured/Ad-hoc'];
+    return patterns.length > 0 ? patterns : [];
   }
 
   private findDesignFlaws(files: ProjectFile[], deps: DependencyGraph, layers: LayerInfo[]): DesignFlaw[] {
@@ -422,12 +496,13 @@ export class ArchitectAgent {
     layers: LayerInfo[],
     deps: DependencyGraph,
     metrics: ArchitectureMetrics,
-    recommendations: Recommendation[]
+    recommendations: Recommendation[],
+    executiveSummary: string
   ): string {
     const doc = `# Architecture Design Document
 
 ## Executive Summary
-This document provides an analysis of the current system architecture, identifies design patterns, highlights potential issues, and recommends improvements.
+${executiveSummary || 'This document provides an analysis of the current system architecture, identifies design patterns, highlights potential issues, and recommends improvements.'}
 
 ## Detected Architecture Patterns
 ${patterns.map(p => `- ${p}`).join('\n')}
@@ -488,10 +563,10 @@ ${rec.implementation}
   }
 
   private getStatus(score: number, inverse: boolean = false): string {
-    const threshold = inverse ? 
-      { good: 3, ok: 6 } : 
+    const threshold = inverse ?
+      { good: 3, ok: 6 } :
       { good: 7, ok: 4 };
-    
+
     if (inverse) {
       if (score <= threshold.good) return '✅ Good';
       if (score <= threshold.ok) return '⚠️ Needs Attention';

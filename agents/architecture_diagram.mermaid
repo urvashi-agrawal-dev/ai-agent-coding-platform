@@ -1,0 +1,39 @@
+
+graph TD
+    subgraph Frontend
+        App[App.tsx]
+        Components[Components]
+    end
+
+    subgraph Backend
+        API[API Routes]
+        Orchestrator[Agent Orchestrator]
+    end
+
+    subgraph Agents
+        LLM[LLM Service]
+        Arch[Architect Agent]
+        Debug[Debugger Agent]
+        Review[Reviewer Agent]
+        Test[Tester Agent]
+    end
+
+    subgraph AWS
+        Bedrock[AWS Bedrock]
+        Claude[Claude 3.5 Sonnet]
+    end
+
+    App --> API
+    API --> Orchestrator
+    Orchestrator --> Arch
+    Orchestrator --> Debug
+    Orchestrator --> Review
+    Orchestrator --> Test
+    
+    Arch --> LLM
+    Debug --> LLM
+    Review --> LLM
+    Test --> LLM
+    
+    LLM --> Bedrock
+    Bedrock --> Claude

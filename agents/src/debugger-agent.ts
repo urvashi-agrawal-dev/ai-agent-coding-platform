@@ -1,5 +1,6 @@
 import { AgentRequest, AgentResponse, AgentType, DebugReport, DebugIssue } from '../../shared/src/types';
 import { spawn } from 'child_process';
+import { LLMService } from './services/llm.service';
 
 interface ExecutionResult {
   success: boolean;
@@ -34,38 +35,55 @@ interface RootCauseAnalysis {
 
 export class DebuggerAgent {
   private timeout = 30000; // 30 seconds
+  private llmService: LLMService;
+
+  constructor() {
+    this.llmService = new LLMService();
+  }
 
   async process(request: AgentRequest): Promise<AgentResponse> {
     const language = request.context?.language || 'javascript';
     const autoFix = request.context?.autoFix || false;
-    
+
     // Run code in sandbox
     const executionResult = await this.runInSandbox(request.code, language);
-    
+
     // Perform static analysis
     const staticIssues = this.performStaticAnalysis(request.code);
-    
+
     // Analyze runtime errors if any
     let rootCauseAnalysis: RootCauseAnalysis | null = null;
     if (!executionResult.success && executionResult.stackTrace) {
-      rootCauseAnalysis = this.analyzeRootCause(
-        request.code,
-        executionResult.stackTrace,
-        executionResult.error
-      );
-      
-      // Auto-patch if requested and confidence is high
-      if (autoFix && rootCauseAnalysis.confidence > 0.7) {
-        rootCauseAnalysis.patchedCode = this.generatePatch(
+      try {
+        rootCauseAnalysis = await this.analyzeRootCause(
           request.code,
-          rootCauseAnalysis
+          executionResult.stackTrace,
+          executionResult.error
         );
+
+        // Auto-patch if requested and confidence is high
+        if (autoFix && rootCauseAnalysis.confidence > 0.7) {
+          rootCauseAnalysis.patchedCode = await this.generatePatch(
+            request.code,
+            rootCauseAnalysis
+          );
+        }
+      } catch (error) {
+        console.error("Error in AI analysis:", error);
+        // Fallback to basic error reporting if LLM fails
+        rootCauseAnalysis = {
+          errorType: executionResult.stackTrace.type,
+          explanation: "AI analysis failed. Please check the stack trace.",
+          rootCause: executionResult.error,
+          suggestedFix: "Review the error message.",
+          confidence: 0.1
+        };
       }
     }
-    
+
     // Combine all issues
     const allIssues = this.combineIssues(staticIssues, executionResult, rootCauseAnalysis);
-    
+
     const report: DebugReport = {
       issues: allIssues,
       severity: this.calculateSeverity(allIssues),
@@ -117,7 +135,7 @@ export class DebuggerAgent {
 
       process.on('close', (exitCode) => {
         clearTimeout(timer);
-        
+
         // Parse stack trace if error occurred
         if (error && exitCode !== 0) {
           stackTrace = this.parseStackTrace(error, language);
@@ -214,117 +232,68 @@ export class DebuggerAgent {
     return { message, type, stack };
   }
 
-  private analyzeRootCause(code: string, stackTrace: StackTrace, errorOutput: string): RootCauseAnalysis {
-    const errorType = stackTrace.type;
-    const errorMessage = stackTrace.message;
-    
-    // Analyze common error patterns
-    const analysis = this.identifyErrorPattern(errorType, errorMessage, code);
-    
-    return {
-      errorType,
-      explanation: analysis.explanation,
-      rootCause: analysis.rootCause,
-      suggestedFix: analysis.suggestedFix,
-      confidence: analysis.confidence
-    };
-  }
+  private async analyzeRootCause(code: string, stackTrace: StackTrace, errorOutput: string): Promise<RootCauseAnalysis> {
+    const prompt = `
+You are an expert software debugger. I will provide you with a code snippet and an error stack trace.
+Your task is to analyze the error, explain the root cause in simple terms, and suggest a fix.
+Return your response in JSON format with the following structure:
+{
+  "errorType": "string",
+  "explanation": "string (simple explanation for a junior developer)",
+  "rootCause": "string (technical root cause)",
+  "suggestedFix": "string (how to fix it)",
+  "confidence": number (0.0 to 1.0)
+}
 
-  private identifyErrorPattern(errorType: string, message: string, code: string): {
-    explanation: string;
-    rootCause: string;
-    suggestedFix: string;
-    confidence: number;
-  } {
-    // Reference Error
-    if (errorType === 'ReferenceError') {
-      const varMatch = message.match(/(\w+) is not defined/);
-      const varName = varMatch ? varMatch[1] : 'variable';
-      
+Code:
+\`\`\`
+${code}
+\`\`\`
+
+Error Output:
+${errorOutput}
+
+Stack Trace:
+${JSON.stringify(stackTrace, null, 2)}
+`;
+
+    try {
+      const response = await this.llmService.generateText(prompt);
+      // Extract JSON from response if it contains markdown code blocks
+      const jsonMatch = response.match(/\{[\s\S]*\}/);
+      const jsonStr = jsonMatch ? jsonMatch[0] : response;
+      return JSON.parse(jsonStr);
+    } catch (error) {
+      console.error("Error parsing LLM response:", error);
       return {
-        explanation: `You're trying to use "${varName}" but it hasn't been declared yet. Think of it like trying to use a tool that doesn't exist in your toolbox.`,
-        rootCause: `The variable "${varName}" is being used before it's defined, or it was never defined at all.`,
-        suggestedFix: `Add "let ${varName} = ..." or "const ${varName} = ..." before using it, or check for typos in the variable name.`,
-        confidence: 0.9
+        errorType: stackTrace.type,
+        explanation: "Could not analyze error with AI.",
+        rootCause: "LLM Analysis Failed",
+        suggestedFix: "Check the logs.",
+        confidence: 0
       };
     }
-
-    // Type Error
-    if (errorType === 'TypeError') {
-      if (message.includes('is not a function')) {
-        const match = message.match(/(.+) is not a function/);
-        const item = match ? match[1] : 'something';
-        
-        return {
-          explanation: `You're trying to call "${item}" as a function, but it's not actually a function. It's like trying to drive a bicycle - bicycles aren't cars!`,
-          rootCause: `"${item}" is not a function. It might be undefined, null, or a different data type.`,
-          suggestedFix: `Check that "${item}" is actually a function. Add a check like "if (typeof ${item} === 'function')" or verify the function is properly imported/defined.`,
-          confidence: 0.85
-        };
-      }
-      
-      if (message.includes('Cannot read property') || message.includes('Cannot read properties of')) {
-        return {
-          explanation: `You're trying to access a property on something that's null or undefined. It's like trying to open a door on a house that doesn't exist.`,
-          rootCause: `Attempting to access a property on null or undefined value.`,
-          suggestedFix: `Add a null check before accessing the property: "if (obj && obj.property)" or use optional chaining: "obj?.property"`,
-          confidence: 0.9
-        };
-      }
-    }
-
-    // Syntax Error
-    if (errorType === 'SyntaxError') {
-      if (message.includes('Unexpected token')) {
-        return {
-          explanation: `There's a typo or incorrect syntax in your code. The JavaScript parser found something it didn't expect, like a missing comma or bracket.`,
-          rootCause: `Invalid syntax - missing or extra punctuation, brackets, or keywords.`,
-          suggestedFix: `Check for missing/extra brackets, commas, semicolons, or quotes. Use a linter or IDE to highlight syntax errors.`,
-          confidence: 0.7
-        };
-      }
-    }
-
-    // Range Error
-    if (errorType === 'RangeError') {
-      if (message.includes('Maximum call stack size exceeded')) {
-        return {
-          explanation: `Your code is stuck in infinite recursion - a function keeps calling itself forever until the program runs out of memory. It's like standing between two mirrors that reflect each other infinitely.`,
-          rootCause: `Infinite recursion detected. A function is calling itself without a proper exit condition.`,
-          suggestedFix: `Add a base case to stop the recursion, or check if you accidentally created an infinite loop.`,
-          confidence: 0.95
-        };
-      }
-    }
-
-    // Generic error
-    return {
-      explanation: `An error occurred: ${message}. This means something unexpected happened during execution.`,
-      rootCause: `${errorType}: ${message}`,
-      suggestedFix: `Review the error message and stack trace to identify the problematic line. Check the documentation for the functions you're using.`,
-      confidence: 0.5
-    };
   }
 
-  private generatePatch(originalCode: string, analysis: RootCauseAnalysis): string {
-    let patchedCode = originalCode;
+  private async generatePatch(originalCode: string, analysis: RootCauseAnalysis): Promise<string> {
+    const prompt = `
+You are an expert software developer. I will provide you with code and a bug analysis.
+Your task is to generate the FIXED code. Return ONLY the full fixed code, no markdown, no explanations.
 
-    // Apply automatic fixes based on error type
-    if (analysis.errorType === 'ReferenceError') {
-      const varMatch = analysis.rootCause.match(/variable "(\w+)"/);
-      if (varMatch) {
-        const varName = varMatch[1];
-        // Add variable declaration at the beginning
-        patchedCode = `let ${varName};\n${originalCode}`;
-      }
+Original Code:
+${originalCode}
+
+Bug Analysis:
+${JSON.stringify(analysis, null, 2)}
+`;
+
+    try {
+      const response = await this.llmService.generateText(prompt);
+      // Clean up response if it has markdown
+      return response.replace(/\`\`\`\w*\n/g, '').replace(/\`\`\`/g, '').trim();
+    } catch (error) {
+      return originalCode;
     }
-
-    if (analysis.errorType === 'TypeError' && analysis.rootCause.includes('null or undefined')) {
-      // Add null checks using optional chaining
-      patchedCode = originalCode.replace(/(\w+)\.(\w+)/g, '$1?.$2');
-    }
-
-    return patchedCode;
   }
 
   private performStaticAnalysis(code: string): DebugIssue[] {
@@ -346,7 +315,7 @@ export class DebuggerAgent {
       }
 
       // Check for var usage
-      if (line.match(/\bvar\s+\w+/)) {
+      if (line.match(/\\bvar\\s+\\w+/)) {
         issues.push({
           line: lineNum,
           column: line.indexOf('var'),
@@ -368,11 +337,11 @@ export class DebuggerAgent {
       }
 
       // Check for missing semicolons (simple check)
-      if (line.trim() && !line.trim().endsWith(';') && !line.trim().endsWith('{') && 
-          !line.trim().endsWith('}') && !line.trim().startsWith('//')) {
+      if (line.trim() && !line.trim().endsWith(';') && !line.trim().endsWith('{') &&
+        !line.trim().endsWith('}') && !line.trim().startsWith('//')) {
         const trimmed = line.trim();
-        if (trimmed.startsWith('const ') || trimmed.startsWith('let ') || 
-            trimmed.startsWith('var ') || trimmed.includes('return ')) {
+        if (trimmed.startsWith('const ') || trimmed.startsWith('let ') ||
+          trimmed.startsWith('var ') || trimmed.includes('return ')) {
           issues.push({
             line: lineNum,
             column: line.length,
